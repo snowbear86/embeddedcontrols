@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Epic AGL Call Control Test</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            padding: 20px;
+        }
+
+        #status {
+            padding: 10px;
+            background: #eee;
+            margin-bottom: 10px;
+        }
+
+        #log {
+            background: #111;
+            color: #00ff88;
+            padding: 10px;
+            height: 350px;
+            overflow: auto;
+            font-family: monospace;
+        }
+    </style>
+
+</head>
+
+<body onload="onLoad()">
+
+    <h2>Epic AGL Test Page</h2>
+
+    <div id="status">Waiting for handshake...</div>
+
+    <button onclick="simulateIncomingCall()">Simulate Incoming Call</button>
+
+    <pre id="log"></pre>
+
+    <script>
+
+        let epicToken = null;
+
+        function log(msg, data) {
+            const logEl = document.getElementById("log");
+
+            const line = msg + (data ? ": " + JSON.stringify(data, null, 2) : "");
+
+            logEl.textContent += line + "\n\n";
+
+            console.log(msg, data);
+        }
+
+        function listener(event) {
+
+            const data = event.data || {};
+
+            log("Message received", data);
+
+            for (const type in data) {
+
+                const payload = data[type];
+
+                switch (type) {
+
+                    case "token":
+                        epicToken = payload;
+                        document.getElementById("status").textContent = "Handshake complete ✔";
+                        log("Received Epic token");
+                        setTimeout(simulateIncomingCall, 5000);
+                        break;
+
+                    case "actions":
+                        log("Supported actions", payload);
+                        break;
+
+                    case "state":
+                        log("State restored", payload);
+                        break;
+
+                    case "actionExecuted":
+                        log("Action executed", payload);
+                        break;
+
+                    case "error":
+                        log("Epic error", payload);
+                        break;
+
+                    case "errorCodes":
+                        log("Epic errorCodes", payload);
+                        break;
+
+                    default:
+                        log("Unhandled message type: " + type, payload);
+                }
+
+            }
+        }
+
+        function onLoad() {
+
+            log("Page loaded");
+
+            window.addEventListener("message", listener, false);
+
+            log("Requesting AGL handshake");
+
+            window.parent.postMessage({
+                action: "Epic.Clinical.Informatics.Web.InitiateHandshake"
+            }, "*");
+        }
+
+        function simulateIncomingCall() {
+
+            if (!epicToken) {
+                log("Cannot send alert yet, no token");
+                return;
+            }
+
+            log("Simulating incoming call");
+
+            window.parent.postMessage({
+                token: epicToken,
+                action: "Epic.Common.CallManagement.Telephony.Alert",
+                args: { Quiet: false }
+            }, "*");
+        }
+
+    </script>
+
+</body>
+
+</html>
