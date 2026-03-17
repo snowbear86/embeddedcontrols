@@ -3,133 +3,77 @@
 
 <head>
     <meta charset="utf-8">
-    <title>Epic AGL Call Control Test</title>
-
+    <title>Epic AGL Load Test</title>
     <style>
         body {
-            font-family: Arial;
-            padding: 20px;
+            font-family: Arial, sans-serif;
+            padding: 16px;
         }
 
         #status {
-            padding: 10px;
+            padding: 8px;
             background: #eee;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         #log {
+            white-space: pre-wrap;
             background: #111;
-            color: #00ff88;
+            color: #0f0;
             padding: 10px;
-            height: 350px;
-            overflow: auto;
-            font-family: monospace;
+            min-height: 200px;
         }
     </style>
-
 </head>
 
 <body onload="onLoad()">
-
-    <h2>Epic AGL Test Page</h2>
-
-    <div id="status">Waiting for handshake...</div>
-
-    <button onclick="simulateIncomingCall()">Simulate Incoming Call</button>
-
+    <h1>HELLO FROM GITHUB PAGES</h1>
+    <div id="status">Page loaded, waiting for handshake...</div>
     <pre id="log"></pre>
 
     <script>
-
-        let epicToken = null;
-
-        function log(msg, data) {
-            const logEl = document.getElementById("log");
-
-            const line = msg + (data ? ": " + JSON.stringify(data, null, 2) : "");
-
-            logEl.textContent += line + "\n\n";
-
-            console.log(msg, data);
+        function log(msg, payload) {
+            const el = document.getElementById("log");
+            el.textContent += msg + (payload ? ": " + JSON.stringify(payload, null, 2) : "") + "\n\n";
+            console.log(msg, payload);
         }
 
-        function listener(event) {
-
+        function Listener(event) {
             const data = event.data || {};
-
             log("Message received", data);
 
             for (const type in data) {
-
                 const payload = data[type];
-
                 switch (type) {
-
                     case "token":
-                        epicToken = payload;
-                        document.getElementById("status").textContent = "Handshake complete ✔";
-                        log("Received Epic token");
-                        setTimeout(simulateIncomingCall, 5000);
+                        document.getElementById("status").textContent = "Handshake successful";
+                        log("Received token", payload);
                         break;
-
                     case "actions":
                         log("Supported actions", payload);
                         break;
-
-                    case "state":
-                        log("State restored", payload);
-                        break;
-
-                    case "actionExecuted":
-                        log("Action executed", payload);
-                        break;
-
                     case "error":
-                        log("Epic error", payload);
+                        log("Error", payload);
                         break;
-
                     case "errorCodes":
-                        log("Epic errorCodes", payload);
+                        log("Error codes", payload);
                         break;
-
                     default:
-                        log("Unhandled message type: " + type, payload);
+                        log("Other message: " + type, payload);
+                        break;
                 }
-
             }
         }
 
         function onLoad() {
-
-            log("Page loaded");
-
-            window.addEventListener("message", listener, false);
-
-            log("Requesting AGL handshake");
-
+            log("Page onLoad fired");
+            window.addEventListener("message", Listener, false);
             window.parent.postMessage({
                 action: "Epic.Clinical.Informatics.Web.InitiateHandshake"
             }, "*");
+            log("Handshake requested");
         }
-
-        function simulateIncomingCall() {
-
-            if (!epicToken) {
-                log("Cannot send alert yet, no token");
-                return;
-            }
-
-            log("Simulating incoming call");
-
-            window.parent.postMessage({
-                token: epicToken,
-                action: "Epic.Common.CallManagement.Telephony.Alert",
-                args: { Quiet: false }
-            }, "*");
-        }
-
     </script>
-
 </body>
 
 </html>
