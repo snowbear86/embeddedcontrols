@@ -16,6 +16,33 @@
             margin-bottom: 12px;
         }
 
+        #call-controls {
+            display: none;
+            border: 2px solid #0a0;
+            background: #f0fff0;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        #caller-info {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .call-btn {
+            padding: 10px 24px;
+            font-size: 15px;
+            cursor: pointer;
+            margin-right: 8px;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+        }
+
+        #btn-accept { background: #1a7a1a; }
+        #btn-decline { background: #a00; }
+
         #log {
             white-space: pre-wrap;
             background: #111;
@@ -27,51 +54,146 @@
 </head>
 
 <body onload="onLoad()">
-    <h1>HELLO FROM GITHUB PAGES</h1>
+    <h1>AGL Call Control</h1>
     <div id="status">Page loaded, waiting for handshake...</div>
+
+    <div id="call-controls">
+        <div id="caller-info"></div>
+        <button class="call-btn" id="btn-accept" onclick="acceptCall()">Accept</button>
+        <button class="call-btn" id="btn-decline" onclick="declineCall()">Decline</button>
+    </div>
+
     <pre id="log"></pre>
 
     <script>
+        // STUB: replace with real SMART on FHIR token parsing
+        const agentIdentity = {
+            id: 'test-agent-001',
+            name: 'Test Agent',
+            extension: '1111',
+            epicUserId: 'TESTUSER',
+            fhirPractitionerId: 'stub-practitioner-id'
+        };
+
+        let epicToken = null;
+        let currentCall = null;
+
+        // STUB: replace with TCN JS SDK initialization
+        let tcnChannel = null;
+
         function log(msg, payload) {
             const el = document.getElementById("log");
             el.textContent += msg + (payload ? ": " + JSON.stringify(payload, null, 2) : "") + "\n\n";
             console.log(msg, payload);
         }
 
+        function setStatus(msg) {
+            document.getElementById("status").textContent = msg;
+        }
+
+        function showCallControls(callerName, callerNumber) {
+            document.getElementById("caller-info").textContent =
+                "Incoming call: " + callerName + " (" + callerNumber + ")";
+            document.getElementById("call-controls").style.display = "block";
+        }
+
+        function hideCallControls() {
+            document.getElementById("call-controls").style.display = "none";
+            currentCall = null;
+        }
+
+        function acceptCall() {
+            if (!currentCall) return;
+            // STUB: replace with tcnSdk.answerCall(currentCall.callId)
+            tcnChannel.postMessage({ tcn: "call.accepted", callId: currentCall.callId });
+            log("Call accepted", { callId: currentCall.callId });
+            setStatus("Call accepted");
+            hideCallControls();
+        }
+
+        function declineCall() {
+            if (!currentCall) return;
+            // STUB: replace with tcnSdk.declineCall(currentCall.callId)
+            tcnChannel.postMessage({ tcn: "call.declined", callId: currentCall.callId });
+            log("Call declined", { callId: currentCall.callId });
+            setStatus("Call declined");
+            hideCallControls();
+        }
+
+        function handleIncomingCall(msg) {
+            currentCall = msg;
+            log("Incoming call from TCN", msg);
+            setStatus("Incoming call...");
+
+            // Tell Epic to open the phone panel
+            window.parent.postMessage({
+                token: epicToken,
+                action: "Epic.Common.CallManagement.Telephony.Alert",
+                args: { Quiet: false }
+            }, "*");
+            log("TelephoneAlert sent to Epic");
+
+            showCallControls(msg.callerName, msg.callerNumber);
+        }
+
+        function connectToTCN() {
+            // STUB: replace with TCN JS SDK initialization + sdk.on('call.incoming', handleIncomingCall)
+            tcnChannel = new BroadcastChannel("tcn-stub");
+
+            tcnChannel.onmessage = (event) => {
+                const msg = event.data;
+                log("Message from TCN stub", msg);
+                if (msg.tcn === "call.incoming") {
+                    handleIncomingCall(msg);
+                }
+            };
+
+            // Send agent identity to TCN (stub: BroadcastChannel | prod: SDK auth)
+            tcnChannel.postMessage({ tcn: "connect", agent: agentIdentity });
+            log("Connected to TCN stub", agentIdentity);
+            setStatus("Connected — Agent: " + agentIdentity.name + " (ext. " + agentIdentity.extension + ")");
+        }
+
         function Listener(event) {
             const data = event.data || {};
-            log("Message received", data);
+            log("AGL message received", data);
 
             for (const type in data) {
                 const payload = data[type];
                 switch (type) {
                     case "token":
-                        document.getElementById("status").textContent = "Handshake successful";
-                        log("Received token", payload);
+                        epicToken = payload;
+                        setStatus("AGL handshake complete — connecting to TCN...");
+                        log("AGL token received");
+                        connectToTCN();
                         break;
                     case "actions":
-                        log("Supported actions", payload);
+                        log("Supported AGL actions", payload);
+                        break;
+                    case "actionExecuted":
+                        log("Action executed", payload);
                         break;
                     case "error":
-                        log("Error", payload);
+                        log("AGL error", payload);
                         break;
                     case "errorCodes":
-                        log("Error codes", payload);
+                        log("AGL error codes", payload);
                         break;
                     default:
-                        log("Other message: " + type, payload);
+                        log("Other AGL message: " + type, payload);
                         break;
                 }
             }
         }
 
         function onLoad() {
-            log("Page onLoad fired");
+            log("Page loaded");
+            log("Stub agent identity", agentIdentity);
             window.addEventListener("message", Listener, false);
             window.parent.postMessage({
                 action: "Epic.Clinical.Informatics.Web.InitiateHandshake"
             }, "*");
-            log("Handshake requested");
+            log("AGL handshake requested");
         }
     </script>
 </body>
