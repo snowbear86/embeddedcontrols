@@ -139,7 +139,7 @@
                 response_type: 'code',
                 client_id: CLIENT_ID,
                 redirect_uri: REDIRECT_URI,
-                scope: 'launch openid fhirUser',
+                scope: 'launch openid',
                 launch,
                 state,
                 code_challenge: challenge,
@@ -402,9 +402,7 @@
             const code = params.get('code');
             const state = params.get('state');
 
-            // SMART on FHIR EHR launch — enable once Vendor Services is fully
-            // configured with EHR Launch type + openid/fhirUser scopes.
-            const SMART_ENABLED = false;
+            const SMART_ENABLED = true;
 
             if (SMART_ENABLED && code) {
                 await handleOAuthCallback(code, state);
