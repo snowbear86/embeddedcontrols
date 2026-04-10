@@ -12,8 +12,11 @@ wss.on('connection', (ws, req) => {
 
     if (!rooms.has(room)) rooms.set(room, new Set());
     rooms.get(room).add(ws);
+    ws.isAlive = true;
 
     console.log(`Client connected to room "${room}" (${rooms.get(room).size} in room)`);
+
+    ws.on('pong', () => { ws.isAlive = true; });
 
     ws.on('message', (data) => {
         // Broadcast to all other clients in the same room
@@ -34,5 +37,17 @@ wss.on('connection', (ws, req) => {
         console.error(`WebSocket error in room "${room}":`, err.message);
     });
 });
+
+// Ping all clients every 25s to keep connections alive through Railway's proxy
+setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (!ws.isAlive) {
+            ws.terminate();
+            return;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 25000);
 
 console.log(`Relay server running on port ${PORT}`);
