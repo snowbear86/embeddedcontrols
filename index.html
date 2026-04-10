@@ -347,6 +347,31 @@
                         } catch (e) {
                             log("AGL token decode failed", { error: e.message });
                         }
+                        // Try Epic's userinfo endpoint using the AGL token as a bearer token.
+                        // If the app has openid scope, this returns fhirUser + name.
+                        const iss = sessionStorage.getItem('smart_iss');
+                        if (iss && payload) {
+                            const userinfoUrl = iss.replace('/api/FHIR/R4', '/oauth2/userinfo');
+                            log("Probing userinfo endpoint", { url: userinfoUrl });
+                            fetch(userinfoUrl, {
+                                headers: { Authorization: 'Bearer ' + payload }
+                            })
+                                .then(r => r.json())
+                                .then(info => {
+                                    log("Userinfo response", info);
+                                    if (info.fhirUser || info.sub) {
+                                        agentIdentity = {
+                                            id: info.sub || agentIdentity.id,
+                                            name: info.name || agentIdentity.name,
+                                            fhirPractitionerId: info.fhirUser || agentIdentity.fhirPractitionerId,
+                                            epicUserId: info.sub || agentIdentity.epicUserId,
+                                            extension: agentIdentity.extension
+                                        };
+                                        log("Agent identity updated from userinfo", agentIdentity);
+                                    }
+                                })
+                                .catch(e => log("Userinfo request failed", { error: e.message }));
+                        }
                         connectToTCN();
                         break;
                     case "actions":
@@ -388,6 +413,20 @@
                 return;
             } else if (launch && iss) {
                 log("EHR launch params detected (SMART disabled)", { launch, iss });
+                // The launch param is itself a JWT — decode it to get the Epic user's sub.
+                // No signature verification needed here; we're already trusting Epic's iframe injection.
+                try {
+                    const launchPayload = JSON.parse(atob(launch.split('.')[1]));
+                    log("Launch token decoded", launchPayload);
+                    if (launchPayload.sub) {
+                        agentIdentity = { ...agentIdentity, epicUserId: launchPayload.sub };
+                        log("agentIdentity.epicUserId updated from launch token", { epicUserId: launchPayload.sub });
+                    }
+                } catch (e) {
+                    log("Launch token decode failed", { error: e.message });
+                }
+                // Store ISS so the AGL token handler can try the userinfo endpoint
+                sessionStorage.setItem('smart_iss', iss);
             }
             // Standalone/stub mode — agentIdentity stays as stub default.
 
