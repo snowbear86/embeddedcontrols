@@ -66,8 +66,16 @@
     <pre id="log"></pre>
 
     <script>
-        // STUB: replace with real SMART on FHIR token parsing
-        const agentIdentity = {
+        // SMART on FHIR — non-prod client ID from Epic Vendor Services.
+        // App must be configured in Vendor Services as an EHR Launch app with
+        // scopes: launch openid fhirUser
+        const CLIENT_ID = 'b10e3371-a841-4d5d-8c9c-144d5620b376';
+        const REDIRECT_URI = 'https://snowbear86.github.io/embeddedcontrols/';
+
+        // Fallback stub identity — used when the page is opened standalone
+        // (no ?launch + ?iss from Epic). Replace with real values once SMART
+        // on FHIR is wired up in Vendor Services.
+        let agentIdentity = {
             id: 'test-agent-001',
             name: 'Test Agent',
             extension: '1111',
@@ -82,6 +90,134 @@
         let epicToken = null;
         let currentCall = null;
         let tcnSocket = null;
+
+        // ── PKCE helpers ──────────────────────────────────────────────────────
+
+        function b64url(bytes) {
+            return btoa(String.fromCharCode(...bytes))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        function generateVerifier() {
+            const arr = new Uint8Array(32);
+            crypto.getRandomValues(arr);
+            return b64url(arr);
+        }
+
+        async function deriveChallenge(verifier) {
+            const buf = await crypto.subtle.digest(
+                'SHA-256', new TextEncoder().encode(verifier));
+            return b64url(new Uint8Array(buf));
+        }
+
+        // ── SMART on FHIR EHR Launch ──────────────────────────────────────────
+
+        // Called when Epic injects ?launch=<token>&iss=<fhir_base_url>.
+        // Discovers SMART endpoints from ISS, then redirects to Epic's auth
+        // server. Page will reload at REDIRECT_URI with ?code= when done.
+        async function startSmartLaunch(launch, iss) {
+            log("SMART EHR launch detected — fetching SMART config...");
+            let smartConfig;
+            try {
+                const res = await fetch(iss + '/.well-known/smart-configuration');
+                smartConfig = await res.json();
+            } catch (e) {
+                log("Failed to fetch SMART configuration — falling back to stub identity",
+                    { iss, error: e.message });
+                return;
+            }
+
+            const verifier = generateVerifier();
+            const challenge = await deriveChallenge(verifier);
+            const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
+
+            sessionStorage.setItem('pkce_verifier', verifier);
+            sessionStorage.setItem('smart_token_url', smartConfig.token_endpoint);
+            sessionStorage.setItem('smart_state', state);
+
+            const params = new URLSearchParams({
+                response_type: 'code',
+                client_id: CLIENT_ID,
+                redirect_uri: REDIRECT_URI,
+                scope: 'launch openid fhirUser',
+                launch,
+                state,
+                code_challenge: challenge,
+                code_challenge_method: 'S256'
+            });
+
+            window.location.href = smartConfig.authorization_endpoint + '?' + params;
+            // Page navigates — nothing below runs.
+        }
+
+        // Called when Epic redirects back with ?code=<auth_code>.
+        // Exchanges code for tokens and extracts agent identity from the ID token.
+        async function handleOAuthCallback(code, returnedState) {
+            const savedState = sessionStorage.getItem('smart_state');
+            if (returnedState !== savedState) {
+                log("OAuth state mismatch — aborting (possible CSRF)");
+                return;
+            }
+
+            const verifier = sessionStorage.getItem('pkce_verifier');
+            const tokenUrl = sessionStorage.getItem('smart_token_url');
+            sessionStorage.removeItem('pkce_verifier');
+            sessionStorage.removeItem('smart_token_url');
+            sessionStorage.removeItem('smart_state');
+
+            let tokens;
+            try {
+                const res = await fetch(tokenUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        code,
+                        redirect_uri: REDIRECT_URI,
+                        client_id: CLIENT_ID,
+                        code_verifier: verifier
+                    })
+                });
+                tokens = await res.json();
+            } catch (e) {
+                log("Token exchange failed — falling back to stub identity",
+                    { error: e.message });
+                return;
+            }
+
+            if (tokens.error) {
+                log("Token error — falling back to stub identity", tokens);
+                return;
+            }
+
+            // The ID token (JWT) carries the fhirUser claim:
+            // "fhirUser": "Practitioner/abc123"
+            // Decode without verifying signature — trust is established by the
+            // TLS + PKCE exchange; client-side sig verification adds no security here.
+            if (tokens.id_token) {
+                try {
+                    const payload = JSON.parse(atob(tokens.id_token.split('.')[1]));
+                    agentIdentity = {
+                        id: payload.sub,
+                        name: payload.name || payload.fhirUser || 'Unknown',
+                        fhirPractitionerId: payload.fhirUser || null,
+                        epicUserId: payload.sub,
+                        // extension is not in the FHIR token — fetch from the
+                        // Practitioner resource or TCN identity lookup if needed
+                        extension: null
+                    };
+                    log("Agent identity from SMART on FHIR", agentIdentity);
+                } catch (e) {
+                    log("Failed to decode ID token — falling back to stub identity",
+                        { error: e.message });
+                }
+            }
+
+            // Strip OAuth params from URL so a page refresh doesn't re-run the flow.
+            window.history.replaceState({}, '', REDIRECT_URI);
+        }
+
+        // ── UI helpers ────────────────────────────────────────────────────────
 
         function log(msg, payload) {
             const el = document.getElementById("log");
@@ -138,6 +274,8 @@
             showCallControls(msg.callerName, msg.callerNumber);
         }
 
+        // ── TCN connection ────────────────────────────────────────────────────
+
         function connectToTCN() {
             // STUB: replace with TCN JS SDK initialization + sdk.on('call.incoming', handleIncomingCall)
             tcnSocket = new WebSocket(RELAY_URL + '?room=tcn-stub');
@@ -146,7 +284,8 @@
                 // Send agent identity to TCN (stub: relay | prod: SDK auth)
                 tcnSocket.send(JSON.stringify({ tcn: "connect", agent: agentIdentity }));
                 log("Connected to relay — sent identity", agentIdentity);
-                setStatus("Connected — Agent: " + agentIdentity.name + " (ext. " + agentIdentity.extension + ")");
+                setStatus("Connected — Agent: " + agentIdentity.name +
+                    (agentIdentity.extension ? " (ext. " + agentIdentity.extension + ")" : ""));
             };
 
             tcnSocket.onmessage = (event) => {
@@ -172,6 +311,8 @@
             };
         }
 
+        // ── AGL message handler ───────────────────────────────────────────────
+
         function Listener(event) {
             const data = event.data || {};
             log("AGL message received", data);
@@ -182,7 +323,30 @@
                     case "token":
                         epicToken = payload;
                         setStatus("AGL handshake complete — connecting to TCN...");
-                        log("AGL token received");
+                        log("AGL token received (raw)", payload);
+                        // Try to decode as JWT so we can see what Epic put in it
+                        try {
+                            const parts = (payload || '').split('.');
+                            if (parts.length === 3) {
+                                const jwtPayload = JSON.parse(atob(parts[1]));
+                                log("AGL token decoded (JWT payload)", jwtPayload);
+                                // If Epic includes fhirUser/sub we can use them directly
+                                if (jwtPayload.fhirUser || jwtPayload.sub) {
+                                    agentIdentity = {
+                                        id: jwtPayload.sub || agentIdentity.id,
+                                        name: jwtPayload.name || agentIdentity.name,
+                                        fhirPractitionerId: jwtPayload.fhirUser || agentIdentity.fhirPractitionerId,
+                                        epicUserId: jwtPayload.sub || agentIdentity.epicUserId,
+                                        extension: agentIdentity.extension
+                                    };
+                                    log("Agent identity updated from AGL token", agentIdentity);
+                                }
+                            } else {
+                                log("AGL token is opaque (not a JWT) — length: " + (payload || '').length);
+                            }
+                        } catch (e) {
+                            log("AGL token decode failed", { error: e.message });
+                        }
                         connectToTCN();
                         break;
                     case "actions":
@@ -204,9 +368,28 @@
             }
         }
 
-        function onLoad() {
+        // ── Entry point ───────────────────────────────────────────────────────
+
+        async function onLoad() {
+            const params = new URLSearchParams(window.location.search);
+            const launch = params.get('launch');
+            const iss = params.get('iss');
+            const code = params.get('code');
+            const state = params.get('state');
+
+            if (code) {
+                // Returning from Epic's OAuth server after user auth.
+                await handleOAuthCallback(code, state);
+            } else if (launch && iss) {
+                // Epic injected EHR launch context — start SMART flow.
+                // startSmartLaunch() redirects the page; nothing below runs.
+                await startSmartLaunch(launch, iss);
+                return;
+            }
+            // else: standalone/stub mode — agentIdentity stays as stub default.
+
             log("Page loaded");
-            log("Stub agent identity", agentIdentity);
+            log("Agent identity", agentIdentity);
             window.addEventListener("message", Listener, false);
             window.parent.postMessage({
                 action: "Epic.Clinical.Informatics.Web.InitiateHandshake"
