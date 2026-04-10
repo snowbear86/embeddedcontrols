@@ -2,4 +2,4 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "cd server && npm install && node relay.js"
+startCommand = "npm start"
