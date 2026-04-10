@@ -145,6 +145,10 @@
                 log("Message from TCN stub", msg);
                 if (msg.tcn === "call.incoming") {
                     handleIncomingCall(msg);
+                } else if (msg.tcn === "stub-ready") {
+                    // Stub page just opened — re-send identity so it doesn't miss it
+                    tcnChannel.postMessage({ tcn: "connect", agent: agentIdentity });
+                    log("TCN stub announced ready — re-sent identity");
                 }
             };
 

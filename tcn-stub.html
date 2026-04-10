@@ -133,6 +133,8 @@
             log("Simulated incoming call sent", payload);
         }
 
+        // Announce presence so iframe re-sends identity if it already connected
+        tcnChannel.postMessage({ tcn: "stub-ready" });
         log("TCN stub ready — waiting for agent iframe to connect via BroadcastChannel");
     </script>
 </body>
