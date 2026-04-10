@@ -402,7 +402,9 @@
             const code = params.get('code');
             const state = params.get('state');
 
-            const SMART_ENABLED = true;
+            // Enable when Vendor Services has openid/fhirUser scopes approved
+            // and iframe FHIR API calls are needed. Not required for the current stub.
+            const SMART_ENABLED = false;
 
             if (SMART_ENABLED && code) {
                 await handleOAuthCallback(code, state);
