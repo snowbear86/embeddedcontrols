@@ -19,10 +19,12 @@ wss.on('connection', (ws, req) => {
     ws.on('pong', () => { ws.isAlive = true; });
 
     ws.on('message', (data) => {
+        // Convert Buffer to string so browsers receive a text frame, not binary
+        const message = data.toString('utf8');
         // Broadcast to all other clients in the same room
         rooms.get(room).forEach(client => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(data);
+                client.send(message);
             }
         });
     });
