@@ -142,6 +142,8 @@
             socket.onopen = () => {
                 setConnectionStatus("connected", "Relay connected — waiting for agent iframe");
                 log("Connected to relay");
+                // Tell iframe we're ready in case it already sent its identity
+                socket.send(JSON.stringify({ tcn: "stub-ready" }));
             };
 
             socket.onmessage = (event) => {

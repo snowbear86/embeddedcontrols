@@ -154,6 +154,10 @@
                 log("Message from TCN stub", msg);
                 if (msg.tcn === "call.incoming") {
                     handleIncomingCall(msg);
+                } else if (msg.tcn === "stub-ready") {
+                    // Stub just connected — re-send identity in case it missed the first one
+                    tcnSocket.send(JSON.stringify({ tcn: "connect", agent: agentIdentity }));
+                    log("TCN stub ready — re-sent identity");
                 }
             };
 
