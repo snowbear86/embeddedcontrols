@@ -29,6 +29,16 @@
             margin-top: 24px;
         }
 
+        #connection-status {
+            padding: 6px 10px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            background: #eee;
+        }
+
+        #connection-status.connected { background: #e6ffe6; color: #080; }
+        #connection-status.error { background: #ffe6e6; color: #a00; }
+
         #agent-box {
             padding: 10px;
             background: #eee;
@@ -80,8 +90,10 @@
     <h1>TCN Stub — Call Simulator</h1>
     <p class="subtitle">
         Simulates the TCN JS SDK + backend. Open this tab alongside the Epic test harness.<br>
-        Swap this page out for the real TCN JS SDK when available.
+        Swap out for the real TCN JS SDK when available.
     </p>
+
+    <div id="connection-status">Connecting to relay...</div>
 
     <h2>Agent Identity</h2>
     <div id="agent-box">Waiting for agent to connect...</div>
@@ -94,9 +106,10 @@
     <pre id="log"></pre>
 
     <script>
-        // STUB: this page simulates both the TCN JS SDK (event source)
-        // and TCN's backend (call routing to the correct agent).
-        const tcnChannel = new BroadcastChannel("tcn-stub");
+        // Must match the URL in index.html
+        const RELAY_URL = 'wss://YOUR_RAILWAY_URL_HERE';
+
+        let socket = null;
 
         function log(msg, payload) {
             const el = document.getElementById("log");
@@ -105,37 +118,61 @@
                 (payload ? ": " + JSON.stringify(payload, null, 2) : "") + "\n\n";
         }
 
-        tcnChannel.onmessage = (event) => {
-            const msg = event.data;
-
-            if (msg.tcn === "connect") {
-                const box = document.getElementById("agent-box");
-                box.textContent = "Agent connected: " + msg.agent.name;
-                box.className = "connected";
-                document.getElementById("agent-detail").textContent =
-                    JSON.stringify(msg.agent, null, 2);
-                document.getElementById("btn-simulate").disabled = false;
-                log("Agent connected", msg.agent);
-            } else {
-                log("Event from iframe", msg);
-            }
-        };
+        function setConnectionStatus(state, msg) {
+            const el = document.getElementById("connection-status");
+            el.textContent = msg;
+            el.className = state;
+        }
 
         function simulateCall() {
-            const callId = "stub-call-" + Date.now();
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
             const payload = {
                 tcn: "call.incoming",
-                callId: callId,
+                callId: "stub-call-" + Date.now(),
                 callerName: "John Doe",
                 callerNumber: "555-867-5309"
             };
-            tcnChannel.postMessage(payload);
+            socket.send(JSON.stringify(payload));
             log("Simulated incoming call sent", payload);
         }
 
-        // Announce presence so iframe re-sends identity if it already connected
-        tcnChannel.postMessage({ tcn: "stub-ready" });
-        log("TCN stub ready — waiting for agent iframe to connect via BroadcastChannel");
+        function connect() {
+            socket = new WebSocket(RELAY_URL + '?room=tcn-stub');
+
+            socket.onopen = () => {
+                setConnectionStatus("connected", "Relay connected — waiting for agent iframe");
+                log("Connected to relay");
+            };
+
+            socket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+
+                if (msg.tcn === "connect") {
+                    const box = document.getElementById("agent-box");
+                    box.textContent = "Agent connected: " + msg.agent.name;
+                    box.className = "connected";
+                    document.getElementById("agent-detail").textContent =
+                        JSON.stringify(msg.agent, null, 2);
+                    document.getElementById("btn-simulate").disabled = false;
+                    log("Agent connected", msg.agent);
+                } else {
+                    log("Event from iframe", msg);
+                }
+            };
+
+            socket.onerror = () => {
+                setConnectionStatus("error", "Relay connection error — is the relay server running?");
+                log("Relay connection error");
+            };
+
+            socket.onclose = () => {
+                setConnectionStatus("", "Relay disconnected");
+                document.getElementById("btn-simulate").disabled = true;
+                log("Relay connection closed");
+            };
+        }
+
+        connect();
     </script>
 </body>
 

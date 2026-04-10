@@ -75,11 +75,13 @@
             fhirPractitionerId: 'stub-practitioner-id'
         };
 
+        // STUB: update this URL after deploying the relay server to Railway
+        // Production: replace connectToTCN() with TCN JS SDK initialization
+        const RELAY_URL = 'wss://YOUR_RAILWAY_URL_HERE';
+
         let epicToken = null;
         let currentCall = null;
-
-        // STUB: replace with TCN JS SDK initialization
-        let tcnChannel = null;
+        let tcnSocket = null;
 
         function log(msg, payload) {
             const el = document.getElementById("log");
@@ -103,18 +105,18 @@
         }
 
         function acceptCall() {
-            if (!currentCall) return;
+            if (!currentCall || !tcnSocket) return;
             // STUB: replace with tcnSdk.answerCall(currentCall.callId)
-            tcnChannel.postMessage({ tcn: "call.accepted", callId: currentCall.callId });
+            tcnSocket.send(JSON.stringify({ tcn: "call.accepted", callId: currentCall.callId }));
             log("Call accepted", { callId: currentCall.callId });
             setStatus("Call accepted");
             hideCallControls();
         }
 
         function declineCall() {
-            if (!currentCall) return;
+            if (!currentCall || !tcnSocket) return;
             // STUB: replace with tcnSdk.declineCall(currentCall.callId)
-            tcnChannel.postMessage({ tcn: "call.declined", callId: currentCall.callId });
+            tcnSocket.send(JSON.stringify({ tcn: "call.declined", callId: currentCall.callId }));
             log("Call declined", { callId: currentCall.callId });
             setStatus("Call declined");
             hideCallControls();
@@ -138,24 +140,32 @@
 
         function connectToTCN() {
             // STUB: replace with TCN JS SDK initialization + sdk.on('call.incoming', handleIncomingCall)
-            tcnChannel = new BroadcastChannel("tcn-stub");
+            tcnSocket = new WebSocket(RELAY_URL + '?room=tcn-stub');
 
-            tcnChannel.onmessage = (event) => {
-                const msg = event.data;
+            tcnSocket.onopen = () => {
+                // Send agent identity to TCN (stub: relay | prod: SDK auth)
+                tcnSocket.send(JSON.stringify({ tcn: "connect", agent: agentIdentity }));
+                log("Connected to relay — sent identity", agentIdentity);
+                setStatus("Connected — Agent: " + agentIdentity.name + " (ext. " + agentIdentity.extension + ")");
+            };
+
+            tcnSocket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
                 log("Message from TCN stub", msg);
                 if (msg.tcn === "call.incoming") {
                     handleIncomingCall(msg);
-                } else if (msg.tcn === "stub-ready") {
-                    // Stub page just opened — re-send identity so it doesn't miss it
-                    tcnChannel.postMessage({ tcn: "connect", agent: agentIdentity });
-                    log("TCN stub announced ready — re-sent identity");
                 }
             };
 
-            // Send agent identity to TCN (stub: BroadcastChannel | prod: SDK auth)
-            tcnChannel.postMessage({ tcn: "connect", agent: agentIdentity });
-            log("Connected to TCN stub", agentIdentity);
-            setStatus("Connected — Agent: " + agentIdentity.name + " (ext. " + agentIdentity.extension + ")");
+            tcnSocket.onerror = () => {
+                log("Relay connection error — is the relay server running?");
+                setStatus("TCN connection error");
+            };
+
+            tcnSocket.onclose = () => {
+                log("Relay connection closed");
+                setStatus("TCN disconnected");
+            };
         }
 
         function Listener(event) {
