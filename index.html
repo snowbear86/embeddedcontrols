@@ -377,16 +377,19 @@
             const code = params.get('code');
             const state = params.get('state');
 
-            if (code) {
-                // Returning from Epic's OAuth server after user auth.
+            // SMART on FHIR EHR launch — enable once Vendor Services is fully
+            // configured with EHR Launch type + openid/fhirUser scopes.
+            const SMART_ENABLED = false;
+
+            if (SMART_ENABLED && code) {
                 await handleOAuthCallback(code, state);
-            } else if (launch && iss) {
-                // Epic injected EHR launch context — start SMART flow.
-                // startSmartLaunch() redirects the page; nothing below runs.
+            } else if (SMART_ENABLED && launch && iss) {
                 await startSmartLaunch(launch, iss);
                 return;
+            } else if (launch && iss) {
+                log("EHR launch params detected (SMART disabled)", { launch, iss });
             }
-            // else: standalone/stub mode — agentIdentity stays as stub default.
+            // Standalone/stub mode — agentIdentity stays as stub default.
 
             log("Page loaded");
             log("Agent identity", agentIdentity);
