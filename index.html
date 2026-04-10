@@ -111,6 +111,13 @@
         }
 
         // ── SMART on FHIR EHR Launch ──────────────────────────────────────────
+        //
+        // This section is probably not needed. The iframe only talks to two things:
+        //   1. Epic — via AGL postMessage (no FHIR API calls required)
+        //   2. TCN  — via WebSocket (TCN does its own auth)
+        // FHIR API calls (e.g. ReceiveCommunication3) are made server-side, not here.
+        // The sub from the launch JWT is sufficient agent identity for the iframe.
+        // Only enable this if the iframe ever needs to call Epic's FHIR API directly.
 
         // Called when Epic injects ?launch=<token>&iss=<fhir_base_url>.
         // Discovers SMART endpoints from ISS, then redirects to Epic's auth
